@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -14,13 +15,29 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+type SavedSlots struct {
+	Owner string `bson:"owner"` // all of deez save locationIDs i dont wanna do allat
+	Slot1 string `bson:"slot1"`
+	Slot2 string `bson:"slot2"`
+	Slot3 string `bson:"slot3"`
+	Slot4 string `bson:"slot4"`
+	Slot5 string `bson:"slot5"`
+}
+
 type User struct {
 	Username       string `bson:"username"`
 	HashedPassword string `bson:"hashedpassword"`
 	SessionToken   string `bson:"sessiontoken"`
 	CSRFToken      string `bson:"csrftoken"`
 	Balance        int    `bson:"balance"`
-	Admin          bool
+}
+
+type Location struct {
+	Name    string `bson:"name"`
+	Address string `bson:"address"`
+	Likes   int    `bson:"likes"`
+	Poster  string `bson:"poster"`
+	ID      int    `bson:"id"`
 }
 
 func setCORS(w http.ResponseWriter, r *http.Request) {
@@ -45,6 +62,9 @@ var db = client.Database("vaulty-golang")
 
 var loginInfo = db.Collection("login")
 
+var location = db.Collection("location")
+var slots = db.Collection("slots")
+
 func main() {
 
 	if err != nil {
@@ -58,7 +78,6 @@ func main() {
 	router.POST("/login", login)
 	router.POST("/logout", logout)
 	router.GET("/protected", protected)
-	router.POST("/admin/manage", ChangeUserBalance)
 	router.GET("/me", getMe)
 
 	//router.GET("/vault/all", viewAllVault)
@@ -193,8 +212,8 @@ func login(minato *gin.Context) {
 	minato.IndentedJSON(200, gin.H{
 		"status":   http.StatusOK,
 		"username": userlogin.Username,
-		"admin":    userlogin.Admin,
-		"balance":  userlogin.Balance,
+
+		"balance": userlogin.Balance,
 	})
 
 }
@@ -264,61 +283,56 @@ func logout(minato *gin.Context) {
 	fmt.Fprintln(itachi, "Logged out.", http.StatusOK)
 }
 
-func ChangeUserBalance(minato *gin.Context) {
-
+func createLocation(minato *gin.Context) {
 	itachi := minato.Writer
 	shisui := minato.Request
 	setCORS(itachi, shisui)
-	username := shisui.FormValue("username")
-	change := shisui.FormValue("change")
+	name := shisui.FormValue("name")
+	address := shisui.FormValue("address")
 
-	changeInt, err := strconv.Atoi(change)
+	locationID := generateToken(8)
+	var Userinfo User
+
+	st, err := shisui.Cookie("session_token")
+
 	if err != nil {
-		http.Error(itachi, "Failed to parse change", http.StatusFailedDependency)
+		http.Error(itachi, "Could not find session.", http.StatusUnauthorized)
 		return
 	}
-	var user User
 
 	err = loginInfo.FindOne(
 		context.Background(),
-		bson.M{"username": username},
-	).Decode(&user)
+		bson.M{"sessiontoken": st.Value},
+	).Decode(&Userinfo)
 
 	if err == mongo.ErrNoDocuments {
-		http.Error(itachi, "User not found.", http.StatusNotFound)
+		http.Error(itachi, "Cannot find user.", http.StatusNotFound)
 		return
 	}
 
-	var balance int
-
-	if changeInt > 0 {
-		balance = user.Balance + changeInt
-	} else if changeInt < 0 {
-		balance = user.Balance + changeInt
-	}
-
-	if err := Authorize(shisui); err != nil {
+	if err := AuthorizeViaSession(shisui); err != nil {
 		http.Error(itachi, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	if user.Admin == false {
-		http.Error(itachi, "You are not a admin, stop larping sonion.", http.StatusUnauthorized)
-		return
-	}
-
-	_, err = loginInfo.UpdateOne(
+	formattedName := strings.ToLower(name)
+	_, err = location.InsertOne(
 		context.Background(),
-		bson.M{"username": username},
-		bson.M{
-			"$set": bson.M{"balance": balance},
-		},
+		bson.M{"name": formattedName, "address": address, "poster": Userinfo.Username},
 	)
 
 	if err != nil {
-		http.Error(itachi, "Could not update the balance of the selected user.", http.StatusBadRequest)
+		http.Error(itachi, "Failed to upload location", http.StatusInternalServerError)
 		return
 	}
+
+	minato.IndentedJSON(200, gin.H{
+		"name":    name,
+		"address": address,
+		"likes":   "0",
+		"poster":  Userinfo.Username,
+		"id":      locationID,
+	})
 
 }
 
@@ -326,35 +340,161 @@ func getMe(minato *gin.Context) {
 	itachi := minato.Writer
 	shisui := minato.Request
 	setCORS(itachi, shisui)
-
-	var user User
+	var Userinfo User
+	var savedSlots SavedSlots
 
 	st, err := shisui.Cookie("session_token")
 
-	if err := AuthorizeViaSession(shisui); err != nil {
-		http.Error(itachi, "Authorization failed", http.StatusUnauthorized)
+	if err != nil {
+		http.Error(itachi, "Could not find session.", http.StatusNotFound)
 		return
 	}
 
-	if err != nil {
-		http.Error(itachi, "Session not found.", http.StatusNotFound)
+	if err := AuthorizeViaSession(shisui); err != nil {
+		http.Error(itachi, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	err = loginInfo.FindOne(
 		context.Background(),
 		bson.M{"sessiontoken": st.Value},
-	).Decode(&user)
+	).Decode(&Userinfo)
 
 	if err == mongo.ErrNoDocuments {
-		http.Error(itachi, "User not found.", http.StatusNotFound)
+		http.Error(itachi, "Could not find your login.", http.StatusNotFound)
 		return
 	}
 
-	minato.IndentedJSON(200, gin.H{
-		"username": user.Username,
-		"balance":  user.Balance,
-		"admin":    user.Admin,
-	})
+	err = location.FindOne(
+		context.Background(),
+		bson.M{"owner": Userinfo.Username},
+	).Decode(&savedSlots)
+
+	minato.IndentedJSON(200,
+		gin.H{
+			"username": Userinfo.Username,
+			"saved1":   savedSlots.Slot1,
+			"saved2":   savedSlots.Slot2,
+			"saved3":   savedSlots.Slot3,
+			"saved4":   savedSlots.Slot4,
+			"saved5":   savedSlots.Slot5,
+		})
+
+}
+
+func SearchLocation(minato *gin.Context) {
+	itachi := minato.Writer
+	shisui := minato.Request
+	query := shisui.FormValue("query")
+	targetSlot := shisui.FormValue("targetslot")
+
+	setCORS(itachi, shisui)
+	var Userinfo User
+	var savedSlots SavedSlots
+
+	st, err := shisui.Cookie("session_token")
+
+	if err != nil {
+		http.Error(itachi, "Could not find session.", http.StatusNotFound)
+		return
+	}
+
+	if err := AuthorizeViaSession(shisui); err != nil {
+		http.Error(itachi, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	err = loginInfo.FindOne(
+		context.Background(),
+		bson.M{"sessiontoken": st.Value},
+	).Decode(&Userinfo)
+
+	if err == mongo.ErrNoDocuments {
+		http.Error(itachi, "Could not find user.", http.StatusNotFound)
+		return
+	}
+
+	err = slots.FindOne(
+		context.Background(),
+		bson.M{"owner": Userinfo.Username},
+	).Decode(&savedSlots)
+
+	if err == mongo.ErrNoDocuments {
+		http.Error(itachi, "Could not find the user's slots.", http.StatusNotFound)
+		return
+	}
+
+	formattedQuery := strings.ToLower(query)
+	var finishedQuery Location
+	err = location.FindOne(
+		context.Background(),
+		bson.M{"name": formattedQuery},
+	).Decode(&finishedQuery)
+
+	if err == mongo.ErrNoDocuments {
+		http.Error(itachi, "Did not find any documents that matched the query", http.StatusNotFound)
+		return
+	}
+
+	i, err := strconv.Atoi(targetSlot)
+	if err != nil {
+		http.Error(itachi, "Could not parse slot.", http.StatusInternalServerError)
+		return
+	}
+
+	if i == 1 {
+		_, err = slots.UpdateOne(
+			context.Background(),
+			bson.M{"owner": Userinfo.Username},
+			bson.M{
+				"$set": bson.M{"slot1": finishedQuery.Name},
+			},
+		)
+	}
+
+	if i == 2 {
+		_, err = slots.UpdateOne(
+			context.Background(),
+			bson.M{"owner": Userinfo.Username},
+			bson.M{
+				"$set": bson.M{"slot2": finishedQuery.Name},
+			},
+		)
+	}
+
+	if i == 3 {
+		_, err = slots.UpdateOne(
+			context.Background(),
+			bson.M{"owner": Userinfo.Username},
+			bson.M{
+				"$set": bson.M{"slot3": finishedQuery.Name},
+			},
+		)
+	}
+
+	if i == 4 {
+		_, err = slots.UpdateOne(
+			context.Background(),
+			bson.M{"owner": Userinfo.Username},
+			bson.M{
+				"$set": bson.M{"slot4": finishedQuery.Name},
+			},
+		)
+	}
+
+	if i == 5 {
+		_, err = slots.UpdateOne(
+			context.Background(),
+			bson.M{"owner": Userinfo.Username},
+			bson.M{
+				"$set": bson.M{"slot5": finishedQuery.Name},
+			},
+		)
+	}
+
+	if i > 5 {
+		http.Error(itachi, "Please select a slot number equal to or lower than 5.", http.StatusBadRequest)
+		return
+	}
 
 }
