@@ -314,7 +314,7 @@ func createLocation(minato *gin.Context) {
 
 	locationID := generateToken(8)
 	var Userinfo User
-
+	var Location Location
 	st, err := shisui.Cookie("session_token")
 
 	if err != nil {
@@ -338,6 +338,16 @@ func createLocation(minato *gin.Context) {
 	}
 
 	formattedName := strings.ToLower(name)
+
+	err = location.FindOne(
+		context.Background(),
+		bson.M{"name": formattedName},
+	).Decode(&Location)
+
+	if err != mongo.ErrNoDocuments {
+		http.Error(itachi, "Location already exists.", http.StatusConflict)
+		return
+	}
 	_, err = location.InsertOne(
 		context.Background(),
 		bson.M{"name": formattedName, "address": address, "poster": Userinfo.Username},
