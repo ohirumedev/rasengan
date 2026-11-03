@@ -29,6 +29,7 @@ type Location struct {
 	Likes   int    `bson:"likes"`
 	Poster  string `bson:"poster"`
 	ID      int    `bson:"id"`
+	Image   string `bson:"image"`
 }
 
 type SavedSlots struct {
@@ -311,6 +312,7 @@ func createLocation(minato *gin.Context) {
 	setCORS(itachi, shisui)
 	name := shisui.FormValue("name")
 	address := shisui.FormValue("address")
+	image := shisui.FormValue("image")
 
 	locationID := generateToken(8)
 	var Userinfo User
@@ -359,11 +361,12 @@ func createLocation(minato *gin.Context) {
 	}
 
 	minato.IndentedJSON(200, gin.H{
-		"name":    name,
-		"address": address,
-		"likes":   "0",
-		"poster":  Userinfo.Username,
-		"id":      locationID,
+		"name":     name,
+		"address":  address,
+		"likes":    "0",
+		"poster":   Userinfo.Username,
+		"id":       locationID,
+		"imageURL": image,
 	})
 
 }
@@ -536,6 +539,7 @@ func SearchLocation(minato *gin.Context) {
 				"likes":   finishedQuery.Likes,
 				"poster":  finishedQuery.Poster,
 				"address": finishedQuery.Address,
+				"image":   finishedQuery.Image,
 			})
 		return
 	}
@@ -546,6 +550,7 @@ func SearchLocation(minato *gin.Context) {
 				"likes":   finishedQuery.Likes,
 				"poster":  finishedQuery.Poster,
 				"address": finishedQuery.Address,
+				"image":   finishedQuery.Image,
 			})
 		return
 	}
@@ -553,4 +558,102 @@ func SearchLocation(minato *gin.Context) {
 		http.Error(itachi, "Invalid option. Only yes or no are supported", http.StatusBadRequest)
 		return
 	}
+}
+
+func GetSlot(minato *gin.Context) {
+	itachi := minato.Writer
+	shisui := minato.Request
+	slotNumber := shisui.FormValue("slotnumber")
+	setCORS(itachi, shisui)
+
+	var savedSlots SavedSlots
+
+	slotInt, err := strconv.Atoi(slotNumber)
+	if err != nil {
+		http.Error(itachi, "Failed to parse location slot number.", http.StatusFailedDependency)
+		return
+	}
+
+	st, err := shisui.Cookie("session_token")
+
+	if err != nil {
+		http.Error(itachi, "Could not find session.", http.StatusNotFound)
+		return
+	}
+
+	if err := AuthorizeViaSession(shisui); err != nil {
+		http.Error(itachi, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	err = slots.FindOne(
+		context.Background(),
+		bson.M{"sessiontoken": st.Value},
+	).Decode(&savedSlots)
+
+	if err == mongo.ErrNoDocuments {
+		http.Error(itachi, "Could not find user's location slots.", http.StatusNotFound)
+		return
+	}
+
+	if slotInt == 1 {
+		minato.IndentedJSON(200,
+			gin.H{
+				"address": savedSlots.Slot1.Address,
+				"poster":  savedSlots.Slot1.Poster,
+				"name":    savedSlots.Slot1.Name,
+				"likes":   savedSlots.Slot1.Likes,
+				"image":   savedSlots.Slot1.Image,
+			})
+	}
+
+	if slotInt == 2 {
+		minato.IndentedJSON(200,
+			gin.H{
+				"address": savedSlots.Slot2.Address,
+				"poster":  savedSlots.Slot2.Poster,
+				"name":    savedSlots.Slot2.Name,
+				"likes":   savedSlots.Slot2.Likes,
+				"image":   savedSlots.Slot2.Image,
+			})
+	}
+
+	if slotInt == 3 {
+		minato.IndentedJSON(200,
+			gin.H{
+				"address": savedSlots.Slot3.Address,
+				"poster":  savedSlots.Slot3.Poster,
+				"name":    savedSlots.Slot3.Name,
+				"likes":   savedSlots.Slot3.Likes,
+				"image":   savedSlots.Slot3.Image,
+			})
+	}
+
+	if slotInt == 4 {
+		minato.IndentedJSON(200,
+			gin.H{
+				"address": savedSlots.Slot4.Address,
+				"poster":  savedSlots.Slot4.Poster,
+				"name":    savedSlots.Slot4.Name,
+				"likes":   savedSlots.Slot4.Likes,
+				"image":   savedSlots.Slot4.Image,
+			})
+	}
+
+	if slotInt == 5 {
+		minato.IndentedJSON(200,
+			gin.H{
+				"address": savedSlots.Slot5.Address,
+				"poster":  savedSlots.Slot5.Poster,
+				"name":    savedSlots.Slot5.Name,
+				"likes":   savedSlots.Slot5.Likes,
+				"image":   savedSlots.Slot5.Image,
+			})
+	}
+
+	if slotInt > 5 || slotInt < 1 {
+		http.Error(itachi, "Slot number numbers higher than 5 and lower than 1 are not accepted.", http.StatusBadRequest)
+		return
+	}
+
 }
