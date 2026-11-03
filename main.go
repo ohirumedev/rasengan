@@ -15,15 +15,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-type SavedSlots struct {
-	Owner string `bson:"owner"` // all of deez save locationIDs i dont wanna do allat
-	Slot1 string `bson:"slot1"`
-	Slot2 string `bson:"slot2"`
-	Slot3 string `bson:"slot3"`
-	Slot4 string `bson:"slot4"`
-	Slot5 string `bson:"slot5"`
-}
-
 type User struct {
 	Username       string `bson:"username"`
 	HashedPassword string `bson:"hashedpassword"`
@@ -38,6 +29,15 @@ type Location struct {
 	Likes   int    `bson:"likes"`
 	Poster  string `bson:"poster"`
 	ID      int    `bson:"id"`
+}
+
+type SavedSlots struct {
+	Owner string   `bson:"owner"` // all of deez save locationIDs i dont wanna do allat
+	Slot1 Location `bson:"slot1"`
+	Slot2 Location `bson:"slot2"`
+	Slot3 Location `bson:"slot3"`
+	Slot4 Location `bson:"slot4"`
+	Slot5 Location `bson:"slot5"`
 }
 
 func setCORS(w http.ResponseWriter, r *http.Request) {
@@ -55,7 +55,7 @@ var mongouri = os.Getenv("MONGODB_URI")
 
 var client, err = mongo.Connect(
 	context.Background(),
-	options.Client().ApplyURI(mongouri),
+	options.Client().ApplyURI("mongodb://localhost:27017"),
 )
 
 var db = client.Database("vaulty-golang")
@@ -79,6 +79,8 @@ func main() {
 	router.POST("/logout", logout)
 	router.GET("/protected", protected)
 	router.GET("/me", getMe)
+	router.POST("/location/create", createLocation)
+	router.POST("/location/search", SearchLocation)
 
 	//router.GET("/vault/all", viewAllVault)
 
@@ -105,6 +107,10 @@ func register(minato *gin.Context) {
 		HashedPassword: hashedpassword,
 		Balance:        0,
 	}
+
+	userSlots := SavedSlots{
+		Owner: username,
+	}
 	filter := bson.M{"username": username}
 
 	if len(password) < 8 {
@@ -129,6 +135,17 @@ func register(minato *gin.Context) {
 	)
 
 	if err != nil {
+		http.Error(itachi, "User registration failed.", http.StatusFailedDependency)
+		return
+	}
+
+	_, err = slots.InsertOne(
+		context.Background(),
+		userSlots,
+	)
+
+	if err != nil {
+		http.Error(itachi, "Creation of location slots  failed.", http.StatusFailedDependency)
 		return
 	}
 
@@ -249,6 +266,11 @@ func logout(minato *gin.Context) {
 	itachi := minato.Writer
 	shisui := minato.Request
 	setCORS(itachi, shisui)
+	st, err := shisui.Cookie("session_token")
+	if err != nil {
+		http.Error(itachi, "Could not get session.", http.StatusNotFound)
+		return
+	}
 
 	if err := AuthorizeViaSession(shisui); err != nil {
 		http.Error(itachi, "Unauthorized", http.StatusUnauthorized)
@@ -268,11 +290,11 @@ func logout(minato *gin.Context) {
 		Expires:  time.Now().Add(-time.Hour),
 		HttpOnly: true,
 	})
-	username := shisui.FormValue("username")
+
 	var user User
 	error := loginInfo.FindOne(
 		context.Background(),
-		bson.M{"username": username},
+		bson.M{"sessiontoken": st.Value},
 	).Decode(&user)
 
 	if error == mongo.ErrNoDocuments {
@@ -365,7 +387,7 @@ func getMe(minato *gin.Context) {
 		return
 	}
 
-	err = location.FindOne(
+	err = slots.FindOne(
 		context.Background(),
 		bson.M{"owner": Userinfo.Username},
 	).Decode(&savedSlots)
@@ -387,6 +409,7 @@ func SearchLocation(minato *gin.Context) {
 	shisui := minato.Request
 	query := shisui.FormValue("query")
 	targetSlot := shisui.FormValue("targetslot")
+	save := shisui.FormValue("save")
 
 	setCORS(itachi, shisui)
 	var Userinfo User
@@ -436,65 +459,88 @@ func SearchLocation(minato *gin.Context) {
 		return
 	}
 
-	i, err := strconv.Atoi(targetSlot)
-	if err != nil {
-		http.Error(itachi, "Could not parse slot.", http.StatusInternalServerError)
+	if save == "yes" {
+		i, err := strconv.Atoi(targetSlot)
+		if err != nil {
+			http.Error(itachi, "Could not parse slot.", http.StatusInternalServerError)
+			return
+		}
+		if i == 1 {
+			_, err = slots.UpdateOne(
+				context.Background(),
+				bson.M{"owner": Userinfo.Username},
+				bson.M{
+					"$set": bson.M{"slot1": finishedQuery},
+				},
+			)
+		}
+
+		if i == 2 {
+			_, err = slots.UpdateOne(
+				context.Background(),
+				bson.M{"owner": Userinfo.Username},
+				bson.M{
+					"$set": bson.M{"slot2": finishedQuery},
+				},
+			)
+		}
+
+		if i == 3 {
+			_, err = slots.UpdateOne(
+				context.Background(),
+				bson.M{"owner": Userinfo.Username},
+				bson.M{
+					"$set": bson.M{"slot3": finishedQuery},
+				},
+			)
+		}
+
+		if i == 4 {
+			_, err = slots.UpdateOne(
+				context.Background(),
+				bson.M{"owner": Userinfo.Username},
+				bson.M{
+					"$set": bson.M{"slot4": finishedQuery},
+				},
+			)
+		}
+
+		if i == 5 {
+			_, err = slots.UpdateOne(
+				context.Background(),
+				bson.M{"owner": Userinfo.Username},
+				bson.M{
+					"$set": bson.M{"slot5": finishedQuery},
+				},
+			)
+		}
+
+		if i > 5 {
+			http.Error(itachi, "Please select a slot number equal to or lower than 5.", http.StatusBadRequest)
+			return
+		}
+
+		minato.IndentedJSON(200,
+			gin.H{
+				"name":    finishedQuery.Name,
+				"likes":   finishedQuery.Likes,
+				"poster":  finishedQuery.Poster,
+				"address": finishedQuery.Address,
+			})
 		return
 	}
-
-	if i == 1 {
-		_, err = slots.UpdateOne(
-			context.Background(),
-			bson.M{"owner": Userinfo.Username},
-			bson.M{
-				"$set": bson.M{"slot1": finishedQuery.Name},
-			},
-		)
-	}
-
-	if i == 2 {
-		_, err = slots.UpdateOne(
-			context.Background(),
-			bson.M{"owner": Userinfo.Username},
-			bson.M{
-				"$set": bson.M{"slot2": finishedQuery.Name},
-			},
-		)
-	}
-
-	if i == 3 {
-		_, err = slots.UpdateOne(
-			context.Background(),
-			bson.M{"owner": Userinfo.Username},
-			bson.M{
-				"$set": bson.M{"slot3": finishedQuery.Name},
-			},
-		)
-	}
-
-	if i == 4 {
-		_, err = slots.UpdateOne(
-			context.Background(),
-			bson.M{"owner": Userinfo.Username},
-			bson.M{
-				"$set": bson.M{"slot4": finishedQuery.Name},
-			},
-		)
-	}
-
-	if i == 5 {
-		_, err = slots.UpdateOne(
-			context.Background(),
-			bson.M{"owner": Userinfo.Username},
-			bson.M{
-				"$set": bson.M{"slot5": finishedQuery.Name},
-			},
-		)
-	}
-
-	if i > 5 {
-		http.Error(itachi, "Please select a slot number equal to or lower than 5.", http.StatusBadRequest)
+	if save == "no" {
+		minato.IndentedJSON(200,
+			gin.H{
+				"name":    finishedQuery.Name,
+				"likes":   finishedQuery.Likes,
+				"poster":  finishedQuery.Poster,
+				"address": finishedQuery.Address,
+			})
 		return
 	}
-
+	if save != "no" && save != "yes" {
+		http.Error(itachi, "Invalid option. Only yes or no are supported", http.StatusBadRequest)
+		return
+	}
 }
