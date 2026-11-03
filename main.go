@@ -75,13 +75,14 @@ func main() {
 
 	router := gin.Default()
 
-	router.POST("/register", register)
-	router.POST("/login", login)
-	router.POST("/logout", logout)
-	router.GET("/protected", protected)
-	router.GET("/me", getMe)
-	router.POST("/location/create", createLocation)
-	router.POST("/location/search", SearchLocation)
+	router.POST("rasengan/user/register", register)
+	router.POST("rasengan/user/login", login)
+	router.POST("rasengan/user/logout", logout)
+	router.GET("rasengan/test/protected", protected)
+	router.GET("rasengan/user/me", getMe)
+	router.POST("rasengan/location/create", createLocation)
+	router.POST("rasengan/location/search", SearchLocation)
+	router.GET("rasengan/location/slots", GetSlot)
 
 	//router.GET("/vault/all", viewAllVault)
 
@@ -567,6 +568,7 @@ func GetSlot(minato *gin.Context) {
 	setCORS(itachi, shisui)
 
 	var savedSlots SavedSlots
+	var Userinfo User
 
 	slotInt, err := strconv.Atoi(slotNumber)
 	if err != nil {
@@ -586,14 +588,24 @@ func GetSlot(minato *gin.Context) {
 		return
 	}
 
-	err = slots.FindOne(
+	err = loginInfo.FindOne(
 		context.Background(),
 		bson.M{"sessiontoken": st.Value},
+	).Decode(&Userinfo)
+
+	if err == mongo.ErrNoDocuments {
+		http.Error(itachi, "Could not find user's session.", http.StatusNotFound)
+		return
+	}
+
+	err = slots.FindOne(
+	context.Background(),
+	bson.M{"owner": Userinfo.Username},
 	).Decode(&savedSlots)
 
 	if err == mongo.ErrNoDocuments {
-		http.Error(itachi, "Could not find user's location slots.", http.StatusNotFound)
-		return
+	http.Error(itachi, "Could not find user's location slots.", http.StatusNotFound)
+	return
 	}
 
 	if slotInt == 1 {
@@ -651,7 +663,7 @@ func GetSlot(minato *gin.Context) {
 			})
 	}
 
-	if slotInt > 5 || slotInt < 1 {
+	if slotInt > 5 || slotInt < 1  {
 		http.Error(itachi, "Slot number numbers higher than 5 and lower than 1 are not accepted.", http.StatusBadRequest)
 		return
 	}
